@@ -2,14 +2,18 @@ package glue
 
 import (
 	"errors"
+	"github.com/iancoleman/strcase"
 	"github.com/mitchellh/mapstructure"
 	lua "github.com/yuin/gopher-lua"
 	"reflect"
+	"strings"
 )
 
 const (
 	// OptionsLenient is whether excess table fields should be ignored.
 	OptionsLenient Options = 1 << iota
+	// OptionsSnakeCaseNaming is whether the mapper should expect the Lua table field names to be snake_case.
+	OptionsSnakeCaseNaming
 )
 
 // Options are the options that can be passed to a mapper.
@@ -45,7 +49,13 @@ func (m *Mapper) Decode(tbl *lua.LTable, st interface{}) error {
 		WeaklyTypedInput: true,
 		Result:           st,
 		TagName:          "glue",
-		ErrorUnused:      m.Options&OptionsLenient == 0,
+		ErrorUnused:      (m.Options & OptionsLenient) == 0,
+		MatchName: func(mapKey, fieldName string) bool {
+			if (m.Options & OptionsSnakeCaseNaming) != 0 {
+				return strcase.ToCamel(mapKey) == fieldName
+			}
+			return strings.EqualFold(mapKey, fieldName)
+		},
 	})
 	if err != nil {
 		return err
@@ -140,7 +150,7 @@ func (m *Mapper) FromGoValue(v interface{}) (lua.LValue, error) {
 	case map[interface{}]interface{}:
 		table := &lua.LTable{}
 
-		for key, value := range t {
+		for key, value := range m.renameMapKeys(t) {
 			lKey, err := m.FromGoValue(key)
 			if err != nil {
 				return nil, err
@@ -161,7 +171,7 @@ func (m *Mapper) FromGoValue(v interface{}) (lua.LValue, error) {
 				WeaklyTypedInput: true,
 				Result:           &mp,
 				TagName:          "glue",
-				ErrorUnused:      m.Options&OptionsLenient == 0,
+				ErrorUnused:      (m.Options & OptionsLenient) == 0,
 			})
 			if err != nil {
 				return nil, err
@@ -170,6 +180,7 @@ func (m *Mapper) FromGoValue(v interface{}) (lua.LValue, error) {
 			if err := decoder.Decode(v); err != nil {
 				return nil, err
 			}
+
 			return m.FromGoValue(mp)
 		case reflect.Pointer:
 			return m.FromGoValue(reflect.ValueOf(v).Elem().Interface())
@@ -188,4 +199,27 @@ func (m *Mapper) FromGoValue(v interface{}) (lua.LValue, error) {
 		}
 		return nil, ErrCannotConvert
 	}
+}
+
+func (m *Mapper) renameMapKeys(m0 map[interface{}]interface{}) map[interface{}]interface{} {
+	if (m.Options & OptionsSnakeCaseNaming) == 0 {
+		return m0
+	}
+
+	m1 := make(map[interface{}]interface{}, len(m0))
+	for key, value := range m0 {
+		key1 := key
+		if reflect.ValueOf(key).Kind() == reflect.String {
+			key1 = strcase.ToSnake(key.(string))
+		}
+
+		value1 := value
+		if reflect.ValueOf(value).Kind() == reflect.Map {
+			value1 = m.renameMapKeys(value.(map[interface{}]interface{}))
+		}
+
+		m1[key1] = value1
+	}
+
+	return m1
 }

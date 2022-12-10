@@ -53,6 +53,18 @@ type Person struct {
 	Roles     []*Role `json:"roles" glue:"roles"`
 }
 
+type Role1 struct {
+	Name string `json:"name"`
+}
+
+type Person1 struct {
+	FirstName string   `json:"first_name"`
+	LastName  string   `json:"last_name"`
+	Age       int      `json:"age"`
+	Workplace string   `json:"workplace"`
+	Roles     []*Role1 `json:"roles"`
+}
+
 func TestMapper_Decode(t *testing.T) {
 	l := lua.NewState()
 	if err := l.DoString(exampleScript); err != nil {
@@ -83,6 +95,57 @@ func TestMapper_Encode(t *testing.T) {
 		Age:       31,
 		Workplace: "Prague",
 		Roles: []*Role{
+			{
+				Name: "Administrator",
+			},
+			{
+				Name: "Operator",
+			},
+		},
+	}
+
+	var table lua.LTable
+	if err := m.Encode(person, &table); err != nil {
+		t.Fatalf("failed to encode: %s", err.Error())
+	}
+
+	l := lua.NewState()
+	l.SetGlobal("person", &table)
+	if err := l.DoString(exampleScript1); err != nil {
+		t.Fatalf("failed to interpret script: %s", err.Error())
+	}
+}
+
+func TestMapper_DecodeNoTags(t *testing.T) {
+	l := lua.NewState()
+	if err := l.DoString(exampleScript); err != nil {
+		t.Fatalf("failed to interpret script: %s", err.Error())
+	}
+
+	m := NewMapper(OptionsSnakeCaseNaming)
+
+	var person Person1
+	if err := m.Decode(l.GetGlobal("person").(*lua.LTable), &person); err != nil {
+		t.Fatalf("failed to decode: %s", err.Error())
+	}
+
+	bytes, err := json.MarshalIndent(person, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal: %s", err.Error())
+	}
+
+	fmt.Println(string(bytes))
+}
+
+func TestMapper_EncodeNoTags(t *testing.T) {
+	m := NewMapper(OptionsSnakeCaseNaming)
+
+	person := Person1{
+		FirstName: "Jan",
+		LastName:  "Novak",
+		Age:       31,
+		Workplace: "Prague",
+		Roles: []*Role1{
 			{
 				Name: "Administrator",
 			},
